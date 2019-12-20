@@ -1,6 +1,7 @@
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #define false 0
@@ -81,6 +82,7 @@ void help() {
 	printf("Options:\n");
 	printf("      -c   Compress input and save as output.\n");
 	printf("      -x   Extract input and save as output.\n");
+	printf("      -p   Turns on pi mode - skips \"3.\" in file and adds it back later.\n");
 	printf("      -h   Display help.\n");
 }
 
@@ -101,7 +103,7 @@ static inline void writebuf(char* buffer, int dest, int count) {
 		exit(1);
 	}
 }
-void compress(int src, int dest) {
+void compress(int src, int dest, bool pi) {
 	// write header after? Also a way of indicating file is done writing?
 	posix_fadvise(src, 0, 0, POSIX_FADV_SEQUENTIAL);  // FDADVICE_SEQUENTIAL
 	// IO buffers
@@ -120,6 +122,29 @@ void compress(int src, int dest) {
 	uint64_t len = 0;
 	// Read src
 	size_t bytesRead;
+	// If in pi mode...
+	if(pi) {
+		if((bytesRead = read(src, ibuf, 2)) != 2) {
+			if(bytesRead == -1) {
+				fprintf(stderr, "[Error] Error occurred while reading input.");
+				exit(1);
+			} else if(bytesRead == 0) {
+				fprintf(stderr, "[Error] Error occurred while reading input - no input available.");
+				exit(1);
+			} else if(bytesRead < 2) {
+				fprintf(stderr, "[Error] Error occurred while reading input - didn't get requested number of bytes.");
+				exit(1);
+			} else {
+				fprintf(stderr, "[Error] Error that can't happen.");
+				exit(1);
+			}
+		}
+		if(!(ibuf[0] == '3' && ibuf[1] == '.')) {
+			fprintf(stderr, "[Error] Pi mode active yet data does not start with \"3.\".");
+			exit(1);
+		}
+	}
+	// Move onto source
 	while((bytesRead = read(src, ibuf, BUFFER_SIZE)) > 0) {
 		len += bytesRead;
 		for(int i = 0; i < bytesRead; i++) {
@@ -181,7 +206,7 @@ void compress(int src, int dest) {
 	}
 	writebuf(obuf, dest, oi);
 }
-void extract(int src, int dest) {
+void extract(int src, int dest, bool pi) {
 	posix_fadvise(src, 0, 0, POSIX_FADV_SEQUENTIAL);  // FDADVICE_SEQUENTIAL
 	// IO buffers
 	unsigned char ibuf[BUFFER_SIZE];
@@ -208,6 +233,9 @@ void extract(int src, int dest) {
 		} else if(bytesRead < HEADER_SIZE) {
 			fprintf(stderr, "[Error] Error occurred while reading input - didn't get requested number of bytes.");
 			exit(1);
+		} else {
+			fprintf(stderr, "[Error] Error that can't happen.");
+			exit(1);
 		}
 	}
 	if(!(ibuf[0] == MAGIC_0 && ibuf[1] == MAGIC_1)) {
@@ -224,6 +252,11 @@ void extract(int src, int dest) {
 	uint64_t original_crc = 0;
 	for(int i = 0; i < 8; i++)
 		original_crc |= ibuf[11 + i] << (i * 8);
+	// If in pi mode.....
+	if(pi) {
+		obuf[oi++] = '3';
+		obuf[oi++] = '.';
+	}
 	// Move onto data
 	while((bytesRead = read(src, ibuf, BUFFER_SIZE)) > 0) {
 		for(int i = 0; i < bytesRead; i++) {
@@ -293,6 +326,7 @@ int main(int argc, char* argv[]) {
 	bool compress_mode = false;
 	bool extract_mode = false;
 	//bool fast = false;
+	bool pi = false;
 	char* input = null;
 	char* output = null;
 	// Process arguments
@@ -311,6 +345,9 @@ int main(int argc, char* argv[]) {
 					//case 'f':
 						//fast = true;
 						//break;
+					case 'p':
+						pi = true;
+						break;
 					case 'h':
 						help();
 						break;
@@ -388,10 +425,10 @@ int main(int argc, char* argv[]) {
 	// Done with checks, move onto program
 	if(compress_mode) {
 		printf("Compressing\n");
-		compress(input_fd, output_fd);
+		compress(input_fd, output_fd, pi);
 	} else if(extract_mode) {
 		printf("Extracting\n");
-		extract(input_fd, output_fd);
+		extract(input_fd, output_fd, pi);
 	}
 
 	close(input_fd);
@@ -400,5 +437,4 @@ int main(int argc, char* argv[]) {
 	return 0;
 }
 
-// TODO: Handle pi
 // TODO: More info on errors
