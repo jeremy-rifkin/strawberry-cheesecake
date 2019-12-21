@@ -313,6 +313,11 @@ void extract(int src, int dest, bool pi) {
 	// Final write
 	if(oi > 0)
 		writebuf(obuf, dest, oi);
+	// Check CRC
+	if(crc != original_crc)
+		fprintf(stderr, "[Warning] CRC64 mismatch.");
+	else
+		printf("CRC64 matched");
 }
 
 int main(int argc, char* argv[]) {
