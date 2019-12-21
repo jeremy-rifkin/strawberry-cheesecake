@@ -47,6 +47,7 @@ code codesAscii[128];
 code codesBin[0x100];
 
 void initTables() {
+	// TODO: Code lookup tables use pointers? Handled as pointers later anyway
 	// Setup the ascii -> code table
 	codesAscii['0'] = (code) { .ascii = '0', .value = 0x0, .bits = 3 };
 	codesAscii['1'] = (code) { .ascii = '1', .value = 0x1, .bits = 3 };
@@ -113,6 +114,25 @@ static inline void writebuf(char* buffer, int dest, int count) {
 		exit(1);
 	}
 }
+static inline void readfixed(int src, char* buffer, int count) {
+	size_t bytesRead;
+	if((bytesRead = read(src, buffer, count)) != count) {
+		if(bytesRead == -1) {
+			fprintf(stderr, "[Error] Error occurred while reading input.\n");
+			exit(1);
+		} else if(bytesRead == 0) {
+			fprintf(stderr, "[Error] Error occurred while reading input - no input available.\n");
+			exit(1);
+		} else if(bytesRead < count) {
+			fprintf(stderr, "[Error] Error occurred while reading input - didn't get requested "
+								"number of bytes.\n");
+			exit(1);
+		} else {
+			fprintf(stderr, "[Error] Error that can't happen.\n");
+			exit(1);
+		}
+	}
+}
 void compress(int src, int dest, bool pi) {
 	// write header after? Also a way of indicating file is done writing?
 	posix_fadvise(src, 0, 0, POSIX_FADV_SEQUENTIAL);  // FDADVICE_SEQUENTIAL
@@ -134,23 +154,7 @@ void compress(int src, int dest, bool pi) {
 	size_t bytesRead;
 	// If in pi mode...
 	if(pi) {
-		if((bytesRead = read(src, ibuf, 2)) != 2) {
-			if(bytesRead == -1) {
-				fprintf(stderr, "[Error] Error occurred while reading input.\n");
-				exit(1);
-			} else if(bytesRead == 0) {
-				fprintf(stderr, "[Error] Error occurred while reading input - no input "
-									"available.\n");
-				exit(1);
-			} else if(bytesRead < 2) {
-				fprintf(stderr, "[Error] Error occurred while reading input - didn't get requested "
-									"number of bytes.\n");
-				exit(1);
-			} else {
-				fprintf(stderr, "[Error] Error that can't happen.\n");
-				exit(1);
-			}
-		}
+		readfixed(src, ibuf, 2);
 		if(!(ibuf[0] == '3' && ibuf[1] == '.')) {
 			fprintf(stderr, "[Error] Pi mode active yet data does not start with \"3.\".\n");
 			exit(1);
@@ -240,22 +244,7 @@ void extract(int src, int dest, bool pi) {
 	// Read src
 	size_t bytesRead;
 	// Handle header
-	if((bytesRead = read(src, ibuf, HEADER_SIZE)) != HEADER_SIZE) {
-		if(bytesRead == -1) {
-			fprintf(stderr, "[Error] Error occurred while reading input.\n");
-			exit(1);
-		} else if(bytesRead == 0) {
-			fprintf(stderr, "[Error] Error occurred while reading input - no input available.\n");
-			exit(1);
-		} else if(bytesRead < HEADER_SIZE) {
-			fprintf(stderr, "[Error] Error occurred while reading input - didn't get requested "
-								"number of bytes.\n");
-			exit(1);
-		} else {
-			fprintf(stderr, "[Error] Error that can't happen.\n");
-			exit(1);
-		}
-	}
+	readfixed(src, ibuf, HEADER_SIZE);
 	if(!(ibuf[0] == MAGIC_0 && ibuf[1] == MAGIC_1)) {
 		fprintf(stderr, "[Error] File does not appear to by a strawberrycheesecake archive.\n");
 		exit(1);
