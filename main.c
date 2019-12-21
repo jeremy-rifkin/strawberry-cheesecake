@@ -258,10 +258,10 @@ void extract(int src, int dest, bool pi) {
 	}
 	uint64_t srclen = 0;
 	for(int i = 0; i < 8; i++)
-		srclen |= ibuf[3 + i] << (i * 8);
+		srclen |= (uint64_t)ibuf[3 + i] << (i * 8);
 	uint64_t original_crc = 0;
 	for(int i = 0; i < 8; i++)
-		original_crc |= ibuf[11 + i] << (i * 8);
+		original_crc |= (uint64_t)ibuf[11 + i] << (i * 8);
 	// If in pi mode.....
 	if(pi) {
 		obuf[oi++] = '3';
@@ -326,11 +326,10 @@ void extract(int src, int dest, bool pi) {
 	// Check CRC
 	if(crc != original_crc) {
 		fprintf(stderr, "[Warning] CRC64 mismatch.\n");
-		printf("CRC:  "); printUint64(crc); printf("\n");
-		printf("OCRC: "); printUint64(original_crc); printf("\n");
-	} else {
+		printf("CRC64:    "); printUint64(crc); printf("\n");
+		printf("Original: "); printUint64(original_crc); printf("\n");
+	} else
 		printf("CRC64 matched\n");
-	}
 }
 
 int main(int argc, char* argv[]) {
