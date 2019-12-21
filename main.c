@@ -27,15 +27,25 @@ typedef struct code {
 	int bits;
 } code;
 
-// ascii to code lookup table
-code codesAscii[128];
-// code to ascii lookup table
-code codesBin[0x100];
 void pbin(char n) { // Debug util
 	int q = 0x100;
 	while(q >>= 1)
 		printf(n & q ? "1" : "0");
 }
+void printUint64(uint64_t v) { // Debug util
+	uint64_t m = 0xff00000000000000ULL;
+	int s = 7;
+	do {
+		printf("%02lX", (v & m) >> (s * 8));
+		m >>= 8;
+	} while(s--);
+}
+
+// ascii to code lookup table
+code codesAscii[128];
+// code to ascii lookup table
+code codesBin[0x100];
+
 void initTables() {
 	// Setup the ascii -> code table
 	codesAscii['0'] = (code) { .ascii = '0', .value = 0x0, .bits = 3 };
@@ -96,7 +106,7 @@ void help() {
 static inline void writebuf(char* buffer, int dest, int count) {
 	int written = write(dest, buffer, count);
 	if(written == -1) {
-		fprintf(stderr, "[Error] Output failed.");
+		fprintf(stderr, "[Error] Output failed.\n");
 		exit(1);
 	} else if(written != count) {
 		fprintf(stderr, "[Error] Output failed - insufficient space in dest.\n");
@@ -126,21 +136,21 @@ void compress(int src, int dest, bool pi) {
 	if(pi) {
 		if((bytesRead = read(src, ibuf, 2)) != 2) {
 			if(bytesRead == -1) {
-				fprintf(stderr, "[Error] Error occurred while reading input.");
+				fprintf(stderr, "[Error] Error occurred while reading input.\n");
 				exit(1);
 			} else if(bytesRead == 0) {
-				fprintf(stderr, "[Error] Error occurred while reading input - no input available.");
+				fprintf(stderr, "[Error] Error occurred while reading input - no input available.\n");
 				exit(1);
 			} else if(bytesRead < 2) {
-				fprintf(stderr, "[Error] Error occurred while reading input - didn't get requested number of bytes.");
+				fprintf(stderr, "[Error] Error occurred while reading input - didn't get requested number of bytes.\n");
 				exit(1);
 			} else {
-				fprintf(stderr, "[Error] Error that can't happen.");
+				fprintf(stderr, "[Error] Error that can't happen.\n");
 				exit(1);
 			}
 		}
 		if(!(ibuf[0] == '3' && ibuf[1] == '.')) {
-			fprintf(stderr, "[Error] Pi mode active yet data does not start with \"3.\".");
+			fprintf(stderr, "[Error] Pi mode active yet data does not start with \"3.\".\n");
 			exit(1);
 		}
 	}
@@ -175,7 +185,7 @@ void compress(int src, int dest, bool pi) {
 		}
 	}
 	if(bytesRead == -1) {
-		fprintf(stderr, "[Error] Error occurred while reading input.");
+		fprintf(stderr, "[Error] Error occurred while reading input.\n");
 		exit(1);
 	}
 	// Residual byte
@@ -187,7 +197,7 @@ void compress(int src, int dest, bool pi) {
 	
 	// Go back and write file header
 	if(lseek(dest, 0, SEEK_SET) == -1) {
-		fprintf(stderr, "[Error] Error occurred while seeking output.");
+		fprintf(stderr, "[Error] Error occurred while seeking output.\n");
 		exit(1);
 	}
 	oi = 0;
@@ -225,25 +235,25 @@ void extract(int src, int dest, bool pi) {
 	// Handle header
 	if((bytesRead = read(src, ibuf, HEADER_SIZE)) != HEADER_SIZE) {
 		if(bytesRead == -1) {
-			fprintf(stderr, "[Error] Error occurred while reading input.");
+			fprintf(stderr, "[Error] Error occurred while reading input.\n");
 			exit(1);
 		} else if(bytesRead == 0) {
-			fprintf(stderr, "[Error] Error occurred while reading input - no input available.");
+			fprintf(stderr, "[Error] Error occurred while reading input - no input available.\n");
 			exit(1);
 		} else if(bytesRead < HEADER_SIZE) {
-			fprintf(stderr, "[Error] Error occurred while reading input - didn't get requested number of bytes.");
+			fprintf(stderr, "[Error] Error occurred while reading input - didn't get requested number of bytes.\n");
 			exit(1);
 		} else {
-			fprintf(stderr, "[Error] Error that can't happen.");
+			fprintf(stderr, "[Error] Error that can't happen.\n");
 			exit(1);
 		}
 	}
 	if(!(ibuf[0] == MAGIC_0 && ibuf[1] == MAGIC_1)) {
-		fprintf(stderr, "[Error] File does not appear to by a strawberrycheesecake archive.");
+		fprintf(stderr, "[Error] File does not appear to by a strawberrycheesecake archive.\n");
 		exit(1);
 	}
 	if(ibuf[2] != FILEFORMAT_VER) { // mainly for futureproofing
-		fprintf(stderr, "[Error] Archive reports unsupported file version.");
+		fprintf(stderr, "[Error] Archive reports unsupported file version.\n");
 		exit(1);
 	}
 	uint64_t srclen = 0;
@@ -307,17 +317,20 @@ void extract(int src, int dest, bool pi) {
 	}
 	end:
 	if(bytesRead == -1) {
-		fprintf(stderr, "[Error] Error occurred while reading input.");
+		fprintf(stderr, "[Error] Error occurred while reading input.\n");
 		exit(1);
 	}
 	// Final write
 	if(oi > 0)
 		writebuf(obuf, dest, oi);
 	// Check CRC
-	if(crc != original_crc)
-		fprintf(stderr, "[Warning] CRC64 mismatch.");
-	else
-		printf("CRC64 matched");
+	if(crc != original_crc) {
+		fprintf(stderr, "[Warning] CRC64 mismatch.\n");
+		printf("CRC:  "); printUint64(crc); printf("\n");
+		printf("OCRC: "); printUint64(original_crc); printf("\n");
+	} else {
+		printf("CRC64 matched\n");
+	}
 }
 
 int main(int argc, char* argv[]) {
