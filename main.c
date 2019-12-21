@@ -139,10 +139,12 @@ void compress(int src, int dest, bool pi) {
 				fprintf(stderr, "[Error] Error occurred while reading input.\n");
 				exit(1);
 			} else if(bytesRead == 0) {
-				fprintf(stderr, "[Error] Error occurred while reading input - no input available.\n");
+				fprintf(stderr, "[Error] Error occurred while reading input - no input "
+									"available.\n");
 				exit(1);
 			} else if(bytesRead < 2) {
-				fprintf(stderr, "[Error] Error occurred while reading input - didn't get requested number of bytes.\n");
+				fprintf(stderr, "[Error] Error occurred while reading input - didn't get requested "
+									"number of bytes.\n");
 				exit(1);
 			} else {
 				fprintf(stderr, "[Error] Error that can't happen.\n");
@@ -156,10 +158,16 @@ void compress(int src, int dest, bool pi) {
 	}
 	// Move onto source
 	while((bytesRead = read(src, ibuf, BUFFER_SIZE)) > 0) {
+		// Book keeping
 		len += bytesRead;
 		for(int i = 0; i < bytesRead; i++) {
+			// TODO handle values outside of '0' - '9' or just trust input?
+			// Handle crc
+			crc = CRCTable[(crc ^ ibuf[i]) & 0xff] ^ (crc >> 8);
+			// Handle code
 			c = &codesAscii[ibuf[i]];
-			if(c->bits + bi == 8) {
+			// Break into 3 cases
+			if(c->bits + bi == 8) { // code fits perfectly
 				byte = (byte << c->bits) | c->value;
 				obuf[oi++] = byte;
 				if(oi == BUFFER_SIZE) {
@@ -167,10 +175,10 @@ void compress(int src, int dest, bool pi) {
 					oi = 0;
 				}
 				bi = 0;
-			} else if(c->bits + bi < 8) {
+			} else if(c->bits + bi < 8) { // code falls short of fitting
 				byte = (byte << c->bits) | c->value;
 				bi += c->bits;
-			} else {
+			} else { // code overflows byte
 				byte = (byte << (8 - bi)) | (c->value >> (c->bits - (8 - bi)));
 				obuf[oi++] = byte;
 				if(oi == BUFFER_SIZE) {
@@ -180,21 +188,19 @@ void compress(int src, int dest, bool pi) {
 				byte = c->value & ((1 << (c->bits - (8 - bi))) - 1);
 				bi = c->bits - (8 - bi);
 			}
-			// Handle crc
-			crc = CRCTable[(crc ^ ibuf[i]) & 0xff] ^ (crc >> 8);
 		}
 	}
+	// Check for read errors
 	if(bytesRead == -1) {
 		fprintf(stderr, "[Error] Error occurred while reading input.\n");
 		exit(1);
 	}
-	// Residual byte
+	// Handle residual byte
 	if(bi > 0)
 		obuf[oi++] = byte << (8 - bi);
-	// Print what's left
+	// Print what's left in buffer
 	if(oi > 0)
 		writebuf(obuf, dest, oi);
-	
 	// Go back and write file header
 	if(lseek(dest, 0, SEEK_SET) == -1) {
 		fprintf(stderr, "[Error] Error occurred while seeking output.\n");
@@ -204,17 +210,18 @@ void compress(int src, int dest, bool pi) {
 	obuf[oi++] = MAGIC_0;
 	obuf[oi++] = MAGIC_1;
 	obuf[oi++] = FILEFORMAT_VER; // mainly for futureproofing
-	// Write little endian
+	// Write length in little endian
 	for(int i = 0; i < 8; i++) {
 		obuf[oi++] = len & 0xff;
 		len >>= 8;
 	}
-	// Write little endian
+	// Write crc64 in little endian
 	for(int i = 0; i < 8; i++) {
 		obuf[oi++] = crc & 0xff;
 		crc >>= 8;
 	}
-	writebuf(obuf, dest, oi);
+	// Write header
+	writebuf(obuf, dest, oi); // oi == HEADER_SIZE
 }
 void extract(int src, int dest, bool pi) {
 	posix_fadvise(src, 0, 0, POSIX_FADV_SEQUENTIAL);  // FDADVICE_SEQUENTIAL
@@ -241,7 +248,8 @@ void extract(int src, int dest, bool pi) {
 			fprintf(stderr, "[Error] Error occurred while reading input - no input available.\n");
 			exit(1);
 		} else if(bytesRead < HEADER_SIZE) {
-			fprintf(stderr, "[Error] Error occurred while reading input - didn't get requested number of bytes.\n");
+			fprintf(stderr, "[Error] Error occurred while reading input - didn't get requested "
+								"number of bytes.\n");
 			exit(1);
 		} else {
 			fprintf(stderr, "[Error] Error that can't happen.\n");
@@ -274,48 +282,50 @@ void extract(int src, int dest, bool pi) {
 			// Get two codes from the byte. There have to be 2 codes in a byte.
 			int nbi = 8;
 			for(int j = 0; j < 2; j++) {
-				// Handle length
+				// Handle data length
 				if(srclen-- == 0)
 					goto end;
 				// Code extraction
 				c = &codesBin[byte];
 				obuf[oi++] = c->ascii;
-				// Handle crc
-				crc = CRCTable[(crc ^ c->ascii) & 0xff] ^ (crc >> 8);
+				byte <<= c->bits;
+				nbi -= c->bits;
+				// Handle buffer
 				if(oi == BUFFER_SIZE) {
 					writebuf(obuf, dest, oi);
 					oi = 0;
 				}
-				byte <<= c->bits;
-				nbi -= c->bits;
+				// Handle crc
+				crc = CRCTable[(crc ^ c->ascii) & 0xff] ^ (crc >> 8);
 			}
 			// Setup byte
 			byte |= (ibuf[i] & ((1 << bi) - 1)) << (8 - bi - nbi);
 			bi += nbi;
-			// Process residual byte
+			// Handle residual byte - there can be at most 1 residual byte
 			if(bi >= 3) {
 				c = &codesBin[byte];
 				if(c->bits <= bi) {
 					// Basically a repeat of the code in the above for loop
-					// Handle length
+					// Handle data length
 					if(srclen-- == 0)
 						goto end;
 					// Code extraction
-					c = &codesBin[byte];
 					obuf[oi++] = c->ascii;
-					// Handle crc
-					crc = CRCTable[(crc ^ c->ascii) & 0xff] ^ (crc >> 8);
+					byte <<= c->bits;
+					bi -= c->bits;
+					// Handle buffer
 					if(oi == BUFFER_SIZE) {
 						writebuf(obuf, dest, oi);
 						oi = 0;
 					}
-					byte <<= c->bits;
-					bi -= c->bits;
+					// Handle crc
+					crc = CRCTable[(crc ^ c->ascii) & 0xff] ^ (crc >> 8);
 				}
 			}
 		}
 	}
-	end:
+	end: // Break out of loop
+	// Check for read errors
 	if(bytesRead == -1) {
 		fprintf(stderr, "[Error] Error occurred while reading input.\n");
 		exit(1);
