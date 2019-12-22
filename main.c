@@ -206,6 +206,12 @@ void compress(int src, int dest, bool pi) {
 	if(oi > 0)
 		writebuf(obuf, dest, oi);
 	// Go back and write file header
+	// File header:
+	// 1 byte     - Magic byte 0
+	// 1 byte     - Magic byte 1
+	// 1 byte     - Fileformat Version
+	// 8 bytes LE - Data length
+	// 8 bytes LE - CRC64
 	if(lseek(dest, 0, SEEK_SET) == -1) {
 		fprintf(stderr, "[Error] Error occurred while seeking output.\n");
 		exit(1);
@@ -225,10 +231,10 @@ void compress(int src, int dest, bool pi) {
 		crc >>= 8;
 	}
 	// Write header
-	writebuf(obuf, dest, oi); // oi == HEADER_SIZE
+	writebuf(obuf, dest, HEADER_SIZE); // oi == HEADER_SIZE
 }
 void extract(int src, int dest, bool pi) {
-	posix_fadvise(src, 0, 0, POSIX_FADV_SEQUENTIAL);  // FDADVICE_SEQUENTIAL
+	posix_fadvise(src, 0, 0, POSIX_FADV_SEQUENTIAL);
 	// IO buffers
 	unsigned char ibuf[BUFFER_SIZE];
 	char obuf[BUFFER_SIZE];
@@ -410,10 +416,6 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
-	// TODO: pipe support?
-	// isatty(fileno(stdin))
-	// https://stackoverflow.com/questions/9084099/re-opening-stdout-and-stdin-file-descriptors-after-closing-them
-	// https://stackoverflow.com/questions/1312922/detect-if-stdin-is-a-terminal-or-pipe
 	int input_fd;
 	int output_fd;
 	printf("in: %s\n", input);
@@ -430,14 +432,19 @@ int main(int argc, char* argv[]) {
 		return 1;
 	} else {
 		// For now just trust output
-		output_fd = open(output, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
+		//output_fd = open(output, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
+		struct stat fileStat;
+		if(fstat(input_fd, &fileStat) < 0) {
+			fprintf(stderr, "[Error] Failed to get permissions on input file.\n");
+			return 1;
+		}
+		output_fd = open(output, O_CREAT | O_WRONLY, fileStat.st_mode | S_IWUSR);
 		if(output_fd == -1) {
 			fprintf(stderr, "[Error] Failed to open output file.\n"); // TODO More error info
 			return 1;
 		}
 	}
 	
-	// TODO: Improve error messages?
 	// Done with checks, move onto program
 	if(compress_mode) {
 		printf("Compressing\n");
@@ -454,3 +461,8 @@ int main(int argc, char* argv[]) {
 }
 
 // TODO: More info on errors
+// TODO: pipe support?
+// isatty(fileno(stdin))
+// https://stackoverflow.com/questions/9084099/re-opening-stdout-and-stdin-file-descriptors-after-closing-them
+// https://stackoverflow.com/questions/1312922/detect-if-stdin-is-a-terminal-or-pipe
+// TODO: Improve error messages?
