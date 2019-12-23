@@ -98,8 +98,9 @@ void help() {
 	fprintf(pLocation, "Usage:");
 	fprintf(pLocation, "strawberrycheesecake [options] input output\n");
 	fprintf(pLocation, "Options:\n");
-	fprintf(pLocation, "      -c   Compress input and save as output.\n");
 	fprintf(pLocation, "      -x   Extract input and save as output.\n");
+	fprintf(pLocation, "      -c   Output to stdout - only supports extraction.\n");
+	fprintf(pLocation, "      -o   Specify output in next positional argument.\n");
 	fprintf(pLocation, "      -p   Turns on pi mode - skips \"3.\" in file and adds it back later.\n");
 	fprintf(pLocation, "      -h   Display help.\n");
 	fprintf(pLocation, "\n");
@@ -379,16 +380,14 @@ int main(int argc, char* argv[]) {
 	// IO
 	int input_fd;
 	int output_fd;
+	bool outputStdout = false;
 	// Process arguments
-	enum state { p_input, p_output, p_done };
-	enum state currentState = p_input;
+	enum positionState { p_input, p_output, p_done };
+	enum positionState currentPositionalArg = p_input;
 	for(int i = 1; i < argc; i++) {
 		if(argv[i][0] == '-') {
 			for(int j = 0; argv[i][++j] != 0x0; )
 				switch(argv[i][j]) {
-					case 'c':
-						compress_mode = true;
-						break;
 					case 'x':
 						extract_mode = true;
 						break;
@@ -401,18 +400,32 @@ int main(int argc, char* argv[]) {
 					case 'h':
 						help();
 						break;
+					case 'c':
+						if(output != null) {
+							fprintf(stderr, "[Error] Output file and -c specified.\n");
+							return 1;
+						}
+						outputStdout = true;
+						break;
+					case 'o':
+						currentPositionalArg = p_output;
+						break;
 					default:
 						fprintf(stderr, "[Warning] Unknown option %c\n", argv[i][j]);
 				}
 		} else {
-			switch(currentState) {
+			switch(currentPositionalArg) {
 				case p_input:
 					input = argv[i];
-					currentState = p_output;
+					currentPositionalArg = p_output;
 					break;
 				case p_output:
+					if(outputStdout) {
+						fprintf(stderr, "[Error] Output file and -c specified.\n");
+						return 1;
+					}
 					output = argv[i];
-					currentState = p_done;
+					currentPositionalArg = p_done;
 					break;
 				case p_done:
 					fprintf(stderr, "[Warning] Unexpected positional argument \"%s\".\n", argv[i]);
@@ -430,13 +443,15 @@ int main(int argc, char* argv[]) {
 	}
 
 	// Handle input
-	//if(isatty(fileno(stdin)))
-	if(isatty(STDIN_FILENO)) {
-		// Check that input file was specified
-		if(input == null) {
+	// Check that input file was specified
+	if(input == null) {
+		if(isatty(STDIN_FILENO)) {
 			fprintf(stderr, "[Error] No input specified.\n");
 			return 1;
+		} else {
+			input_fd = STDIN_FILENO;
 		}
+	} else {
 		// Check that input exists
 		if(access(input, F_OK) == -1) {
 			fprintf(stderr, "[Error] Input file does not exist.\n");
@@ -453,20 +468,19 @@ int main(int argc, char* argv[]) {
 			fprintf(stderr, "[Error] Failed to open input file.\n"); // TODO More error info
 			return 1;
 		}
-	} else {
-		input_fd = STDIN_FILENO;
 	}
 
 	// Handle output
-	bool outIsPipe = false;
-	if(isatty(STDOUT_FILENO)) {
+	if(outputStdout) {
+		output_fd = STDOUT_FILENO;
+	} else {
 		if(output == null) {
 			#ifndef DEFAULT_STDOUT
 			fprintf(stderr, "[Error] No output specified.\n");
 			return 1;
 			#else
 			output_fd = STDOUT_FILENO;
-			outIsPipe = true;
+			outputStdout = true;
 			#endif
 		} else {
 			struct stat fileStat;
@@ -483,27 +497,24 @@ int main(int argc, char* argv[]) {
 				return 1;
 			}
 		}
-	} else {
-		output_fd = STDOUT_FILENO;
-		outIsPipe = true;
 	}
 
 	// Handle output pipe
-	if(outIsPipe) {
+	if(outputStdout) {
 		pLocation = stderr; // Print info to stderr
 	}
 
 	// Done with checks, move onto program
 	if(compress_mode) {
 		fprintf(pLocation, "Compressing\n");
-		if(outIsPipe) {
-			fprintf(stderr, "[Error] Can't compress to pipe.\n");
+		if(outputStdout) {
+			fprintf(stderr, "[Error] Can't compress to stdout.\n");
 			return 1;
 		}
 		compress(input_fd, output_fd, pi);
 	} else if(extract_mode) {
 		fprintf(pLocation, "Extracting\n");
-		extract(input_fd, output_fd, pi, outIsPipe);
+		extract(input_fd, output_fd, pi, outputStdout);
 	}
 
 	close(input_fd);
