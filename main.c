@@ -449,7 +449,7 @@ int main(int argc, char* argv[]) {
 			fprintf(stderr, "[Error] Failed to get permissions on input file.\n");
 			return 1;
 		}
-		output_fd = open(output, O_CREAT | O_WRONLY, fileStat.st_mode | S_IWUSR);
+		output_fd = open(output, O_CREAT | O_TRUNC | O_WRONLY, fileStat.st_mode | S_IWUSR);
 		if(output_fd == -1) {
 			fprintf(stderr, "[Error] Failed to open output file.\n"); // TODO More error info
 			return 1;
