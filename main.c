@@ -85,7 +85,10 @@ void initTables() {
 #define MAGIC_0 'S'
 #define MAGIC_1 'C'
 #define FILEFORMAT_VER 0x0
-#define HEADER_SIZE 19
+#define HEADER_SIZE 20
+
+#define FLAG_PI    0x1
+#define FLAG_NOCRC 0x2
 
 void help() {
 	printf("Usage:");
@@ -210,6 +213,7 @@ void compress(int src, int dest, bool pi) {
 	// 1 byte     - Magic byte 0
 	// 1 byte     - Magic byte 1
 	// 1 byte     - Fileformat Version
+	// 1 byte     - Flags
 	// 8 bytes LE - Data length
 	// 8 bytes LE - CRC64
 	if(lseek(dest, 0, SEEK_SET) == -1) {
@@ -220,6 +224,10 @@ void compress(int src, int dest, bool pi) {
 	obuf[oi++] = MAGIC_0;
 	obuf[oi++] = MAGIC_1;
 	obuf[oi++] = FILEFORMAT_VER; // mainly for futureproofing
+	char flags = 0x0;
+	if(pi)
+		flags |= FLAG_PI;
+	obuf[oi++] = flags;
 	// Write length in little endian
 	for(int i = 0; i < 8; i++) {
 		obuf[oi++] = len & 0xff;
@@ -259,12 +267,15 @@ void extract(int src, int dest, bool pi) {
 		fprintf(stderr, "[Error] Archive reports unsupported file version.\n");
 		exit(1);
 	}
+	char flags = ibuf[3];
+	if(flags & FLAG_PI)
+		pi = true;
 	uint64_t srclen = 0;
 	for(int i = 0; i < 8; i++)
-		srclen |= (uint64_t)ibuf[3 + i] << (i * 8);
+		srclen |= (uint64_t)ibuf[4 + i] << (i * 8);
 	uint64_t original_crc = 0;
 	for(int i = 0; i < 8; i++)
-		original_crc |= (uint64_t)ibuf[11 + i] << (i * 8);
+		original_crc |= (uint64_t)ibuf[12 + i] << (i * 8);
 	// If in pi mode.....
 	if(pi) {
 		obuf[oi++] = '3';
