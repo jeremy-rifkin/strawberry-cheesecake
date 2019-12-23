@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -13,8 +14,12 @@
 // Make editor happy while developing on windows
 #define POSIX_FADV_SEQUENTIAL 0
 #define size_t int
+#define FILE void;
 #pragma message ("No.") // Don't actually allow this to compile
 #endif
+
+#define DEFAULT_STDOUT
+FILE* pLocation;
 
 // CRC64 from http://www0.cs.ucl.ac.uk/staff/d.jones/crcnote.pdf
 #define POLY64REV  0x95AC9329AC4BC9B5ULL
@@ -30,13 +35,13 @@ typedef struct code {
 void pbin(char n) { // Debug util
 	int q = 0x100;
 	while(q >>= 1)
-		printf(n & q ? "1" : "0");
+		fprintf(pLocation, n & q ? "1" : "0");
 }
 void printUint64(uint64_t v) { // Debug util
 	uint64_t m = 0xff00000000000000ULL;
 	int s = 7;
 	do {
-		printf("%02lX", (v & m) >> (s * 8));
+		fprintf(pLocation, "%02lX", (v & m) >> (s * 8));
 		m >>= 8;
 	} while(s--);
 }
@@ -88,16 +93,18 @@ void initTables() {
 #define HEADER_SIZE 20
 
 #define FLAG_PI    0x1
-#define FLAG_NOCRC 0x2
 
 void help() {
-	printf("Usage:");
-	printf("strawberrycheesecake [options] input output\n");
-	printf("Options:\n");
-	printf("      -c   Compress input and save as output.\n");
-	printf("      -x   Extract input and save as output.\n");
-	printf("      -p   Turns on pi mode - skips \"3.\" in file and adds it back later.\n");
-	printf("      -h   Display help.\n");
+	fprintf(pLocation, "Usage:");
+	fprintf(pLocation, "strawberrycheesecake [options] input output\n");
+	fprintf(pLocation, "Options:\n");
+	fprintf(pLocation, "      -c   Compress input and save as output.\n");
+	fprintf(pLocation, "      -x   Extract input and save as output.\n");
+	fprintf(pLocation, "      -p   Turns on pi mode - skips \"3.\" in file and adds it back later.\n");
+	fprintf(pLocation, "      -h   Display help.\n");
+	fprintf(pLocation, "\n");
+	fprintf(pLocation, "The program will read from stdin if no input is specified and stdin is a pipe.\n");
+	fprintf(pLocation, "The program will write to stdout if no output is specified.\n");
 }
 
 #define BUFFER_SIZE 32768
@@ -155,7 +162,7 @@ void compress(int src, int dest, bool pi) {
 	uint64_t len = 0;
 	// Read src
 	size_t bytesRead;
-	// If in pi mode...
+	// If in pi mode... Skip the "3."
 	if(pi) {
 		readfixed(src, ibuf, 2);
 		if(!(ibuf[0] == '3' && ibuf[1] == '.')) {
@@ -163,7 +170,7 @@ void compress(int src, int dest, bool pi) {
 			exit(1);
 		}
 	}
-	// Move onto source
+	// Move onto data
 	while((bytesRead = read(src, ibuf, BUFFER_SIZE)) > 0) {
 		// Book keeping
 		len += bytesRead;
@@ -208,8 +215,9 @@ void compress(int src, int dest, bool pi) {
 	// Print what's left in buffer
 	if(oi > 0)
 		writebuf(obuf, dest, oi);
-	// Go back and write file header
-	// File header:
+	//fprintf(pLocation, "CRC64: "); printUint64(crc); fprintf(pLocation, "\n");
+	// Go back and write header
+	// Header format:
 	// 1 byte     - Magic byte 0
 	// 1 byte     - Magic byte 1
 	// 1 byte     - Fileformat Version
@@ -240,8 +248,9 @@ void compress(int src, int dest, bool pi) {
 	}
 	// Write header
 	writebuf(obuf, dest, HEADER_SIZE); // oi == HEADER_SIZE
+	fprintf(pLocation, "Done\n");
 }
-void extract(int src, int dest, bool pi) {
+void extract(int src, int dest, bool pi, bool outIsPipe) {
 	posix_fadvise(src, 0, 0, POSIX_FADV_SEQUENTIAL);
 	// IO buffers
 	unsigned char ibuf[BUFFER_SIZE];
@@ -339,16 +348,21 @@ void extract(int src, int dest, bool pi) {
 	// Final write
 	if(oi > 0)
 		writebuf(obuf, dest, oi);
+	if(outIsPipe)
+		fprintf(stderr, "\n");
+	//fprintf(pLocation, "CRC64: "); printUint64(crc); fprintf(pLocation, "\n");
 	// Check CRC
 	if(crc != original_crc) {
 		fprintf(stderr, "[Warning] CRC64 mismatch.\n");
-		printf("CRC64:    "); printUint64(crc); printf("\n");
-		printf("Original: "); printUint64(original_crc); printf("\n");
+		fprintf(pLocation, "CRC64:    "); printUint64(crc); fprintf(pLocation, "\n");
+		fprintf(pLocation, "Original: "); printUint64(original_crc); fprintf(pLocation, "\n");
 	} else
-		printf("CRC64 matched\n");
+		fprintf(pLocation, "CRC64 matched\n");
+	fprintf(pLocation, "Done\n");
 }
 
 int main(int argc, char* argv[]) {
+	pLocation = stdout;
 	if(argc < 2) {
 		help();
 		return 0;
@@ -362,6 +376,9 @@ int main(int argc, char* argv[]) {
 	bool pi = false;
 	char* input = null;
 	char* output = null;
+	// IO
+	int input_fd;
+	int output_fd;
 	// Process arguments
 	enum state { p_input, p_output, p_done };
 	enum state currentState = p_input;
@@ -406,63 +423,87 @@ int main(int argc, char* argv[]) {
 	// Compress default
 	if(!extract_mode && !compress_mode)
 		compress_mode = true;
-	// Handle paradox
+	// Handle contradiction
 	if(extract_mode && compress_mode) {
 		fprintf(stderr, "[Error] Cannot compress and extract at the same time.\n");
 		return 1;
 	}
-	// Check that file was specified
-	if(input == null) {
-		fprintf(stderr, "[Error] No input specified.\n");
-		return 1;
-	}
-	// Check that input exists
-	if(access(input, F_OK) == -1) {
-		fprintf(stderr, "[Error] Input file does not exist.\n");
-		return 1;
-	}
-	// Check input perms
-	if(access(input, R_OK) == -1) {
-		fprintf(stderr, "[Error] User does not have permissions to read input.\n");
-		return 1;
-	}
 
-	int input_fd;
-	int output_fd;
-	printf("in: %s\n", input);
-	printf("output: %s\n", output);
-	input_fd = open(input, O_RDONLY);
-	if(input_fd == -1) {
-		fprintf(stderr, "[Error] Failed to open input file.\n"); // TODO More error info
-		return 1;
-	}
-
-	// TODO output checking
-	if(output == null) {
-		fprintf(stderr, "[Error] No output.\n");
-		return 1;
+	// Handle input
+	//if(isatty(fileno(stdin)))
+	if(isatty(STDIN_FILENO)) {
+		// Check that input file was specified
+		if(input == null) {
+			fprintf(stderr, "[Error] No input specified.\n");
+			return 1;
+		}
+		// Check that input exists
+		if(access(input, F_OK) == -1) {
+			fprintf(stderr, "[Error] Input file does not exist.\n");
+			return 1;
+		}
+		// Check input perms
+		if(access(input, R_OK) == -1) {
+			fprintf(stderr, "[Error] User does not have permissions to read input.\n");
+			return 1;
+		}
+		// Open input
+		input_fd = open(input, O_RDONLY);
+		if(input_fd == -1) {
+			fprintf(stderr, "[Error] Failed to open input file.\n"); // TODO More error info
+			return 1;
+		}
 	} else {
-		// For now just trust output
-		//output_fd = open(output, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
-		struct stat fileStat;
-		if(fstat(input_fd, &fileStat) < 0) {
-			fprintf(stderr, "[Error] Failed to get permissions on input file.\n");
-			return 1;
-		}
-		output_fd = open(output, O_CREAT | O_TRUNC | O_WRONLY, fileStat.st_mode | S_IWUSR);
-		if(output_fd == -1) {
-			fprintf(stderr, "[Error] Failed to open output file.\n"); // TODO More error info
-			return 1;
-		}
+		input_fd = STDIN_FILENO;
 	}
-	
+
+	// Handle output
+	bool outIsPipe = false;
+	if(isatty(STDOUT_FILENO)) {
+		if(output == null) {
+			#ifndef DEFAULT_STDOUT
+			fprintf(stderr, "[Error] No output specified.\n");
+			return 1;
+			#else
+			output_fd = STDOUT_FILENO;
+			outIsPipe = true;
+			#endif
+		} else {
+			struct stat fileStat;
+			if(fstat(input_fd, &fileStat) < 0) {
+				fprintf(stderr, "[Error] Failed to get permissions on input file.\n");
+				return 1;
+			}
+			output_fd = open(output, O_CREAT | O_TRUNC | O_WRONLY, fileStat.st_mode | S_IWUSR);
+			if(output_fd == -1) {
+				if(errno == EACCES)
+					fprintf(stderr, "[Error] Failed to open output file - permissions.\n");
+				else
+					fprintf(stderr, "[Error] Failed to open output file.\n"); // TODO More error info
+				return 1;
+			}
+		}
+	} else {
+		output_fd = STDOUT_FILENO;
+		outIsPipe = true;
+	}
+
+	// Handle output pipe
+	if(outIsPipe) {
+		pLocation = stderr; // Print info to stderr
+	}
+
 	// Done with checks, move onto program
 	if(compress_mode) {
-		printf("Compressing\n");
+		fprintf(pLocation, "Compressing\n");
+		if(outIsPipe) {
+			fprintf(stderr, "[Error] Can't compress to pipe.\n");
+			return 1;
+		}
 		compress(input_fd, output_fd, pi);
 	} else if(extract_mode) {
-		printf("Extracting\n");
-		extract(input_fd, output_fd, pi);
+		fprintf(pLocation, "Extracting\n");
+		extract(input_fd, output_fd, pi, outIsPipe);
 	}
 
 	close(input_fd);
@@ -472,8 +513,6 @@ int main(int argc, char* argv[]) {
 }
 
 // TODO: More info on errors
-// TODO: pipe support?
-// isatty(fileno(stdin))
-// https://stackoverflow.com/questions/9084099/re-opening-stdout-and-stdin-file-descriptors-after-closing-them
-// https://stackoverflow.com/questions/1312922/detect-if-stdin-is-a-terminal-or-pipe
 // TODO: Improve error messages?
+// TODO: Progress bar?
+// TODO: Verify length match
