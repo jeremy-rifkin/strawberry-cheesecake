@@ -1,3 +1,4 @@
+// Jeremy Rifkin 2019
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
@@ -14,7 +15,7 @@
 // Make editor happy while developing on windows
 #define POSIX_FADV_SEQUENTIAL 0
 #define size_t int
-#define FILE void;
+#define FILE void
 #pragma message ("No.") // Don't actually allow this to compile
 #endif
 
@@ -101,10 +102,12 @@ void help() {
 	fprintf(pLocation, "      -x   Extract input and save as output.\n");
 	fprintf(pLocation, "      -c   Output to stdout - only supports extraction.\n");
 	fprintf(pLocation, "      -o   Specify output in next positional argument.\n");
-	fprintf(pLocation, "      -p   Turns on pi mode - skips \"3.\" in file and adds it back later.\n");
+	fprintf(pLocation, "      -p   Turns on pi mode - skips \"3.\" in file and adds it back later."
+							"\n");
 	fprintf(pLocation, "      -h   Display help.\n");
 	fprintf(pLocation, "\n");
-	fprintf(pLocation, "The program will read from stdin if no input is specified and stdin is a pipe.\n");
+	fprintf(pLocation, "The program will read from stdin if no input is specified and stdin is a "
+							"pipe.\n");
 	fprintf(pLocation, "The program will write to stdout if no output is specified.\n");
 }
 
@@ -118,7 +121,7 @@ void help() {
 static inline void writebuf(char* buffer, int dest, int count) {
 	int written = write(dest, buffer, count);
 	if(written == -1) {
-		fprintf(stderr, "[Error] Output failed.\n");
+		fprintf(stderr, "[Error] Output failed (errno: %d).\n", errno);
 		exit(1);
 	} else if(written != count) {
 		fprintf(stderr, "[Error] Output failed - insufficient space in dest.\n");
@@ -129,7 +132,7 @@ static inline void readfixed(int src, char* buffer, int count) {
 	size_t bytesRead;
 	if((bytesRead = read(src, buffer, count)) != count) {
 		if(bytesRead == -1) {
-			fprintf(stderr, "[Error] Error occurred while reading input.\n");
+			fprintf(stderr, "[Error] Error occurred while reading input (errno: %d).\n", errno);
 			exit(1);
 		} else if(bytesRead == 0) {
 			fprintf(stderr, "[Error] Error occurred while reading input - no input available.\n");
@@ -138,7 +141,7 @@ static inline void readfixed(int src, char* buffer, int count) {
 			fprintf(stderr, "[Error] Error occurred while reading input - didn't get requested "
 								"number of bytes.\n");
 			exit(1);
-		} else {
+		} else { // for completeness sake
 			fprintf(stderr, "[Error] Error that can't happen.\n");
 			exit(1);
 		}
@@ -207,7 +210,7 @@ void compress(int src, int dest, bool pi) {
 	}
 	// Check for read errors
 	if(bytesRead == -1) {
-		fprintf(stderr, "[Error] Error occurred while reading input.\n");
+		fprintf(stderr, "[Error] Error occurred while reading input (errno: %d).\n", errno);
 		exit(1);
 	}
 	// Handle residual byte
@@ -226,7 +229,7 @@ void compress(int src, int dest, bool pi) {
 	// 8 bytes LE - Data length
 	// 8 bytes LE - CRC64
 	if(lseek(dest, 0, SEEK_SET) == -1) {
-		fprintf(stderr, "[Error] Error occurred while seeking output.\n");
+		fprintf(stderr, "[Error] Error occurred while seeking output (errno: %d).\n", errno);
 		exit(1);
 	}
 	oi = 0;
@@ -249,7 +252,6 @@ void compress(int src, int dest, bool pi) {
 	}
 	// Write header
 	writebuf(obuf, dest, HEADER_SIZE); // oi == HEADER_SIZE
-	fprintf(pLocation, "Done\n");
 }
 void extract(int src, int dest, bool pi, bool outIsPipe) {
 	posix_fadvise(src, 0, 0, POSIX_FADV_SEQUENTIAL);
@@ -274,7 +276,7 @@ void extract(int src, int dest, bool pi, bool outIsPipe) {
 		exit(1);
 	}
 	if(ibuf[2] != FILEFORMAT_VER) { // mainly for futureproofing
-		fprintf(stderr, "[Error] Archive reports unsupported file version.\n");
+		fprintf(stderr, "[Error] Unsupported archive version.\n");
 		exit(1);
 	}
 	char flags = ibuf[3];
@@ -343,7 +345,7 @@ void extract(int src, int dest, bool pi, bool outIsPipe) {
 	end: // Break out of loop
 	// Check for read errors
 	if(bytesRead == -1) {
-		fprintf(stderr, "[Error] Error occurred while reading input.\n");
+		fprintf(stderr, "[Error] Error occurred while reading input (errno: %d).\n", errno);
 		exit(1);
 	}
 	// Final write
@@ -359,7 +361,6 @@ void extract(int src, int dest, bool pi, bool outIsPipe) {
 		fprintf(pLocation, "Original: "); printUint64(original_crc); fprintf(pLocation, "\n");
 	} else
 		fprintf(pLocation, "CRC64 matched\n");
-	fprintf(pLocation, "Done\n");
 }
 
 int main(int argc, char* argv[]) {
@@ -454,18 +455,19 @@ int main(int argc, char* argv[]) {
 	} else {
 		// Check that input exists
 		if(access(input, F_OK) == -1) {
-			fprintf(stderr, "[Error] Input file does not exist.\n");
+			fprintf(stderr, "[Error] Input file does not exist (errno: %d).\n", errno);
 			return 1;
 		}
 		// Check input perms
 		if(access(input, R_OK) == -1) {
-			fprintf(stderr, "[Error] User does not have permissions to read input.\n");
+			fprintf(stderr, "[Error] User does not have permissions to read input (errno: %d).\n",
+								errno);
 			return 1;
 		}
 		// Open input
 		input_fd = open(input, O_RDONLY);
 		if(input_fd == -1) {
-			fprintf(stderr, "[Error] Failed to open input file.\n"); // TODO More error info
+			fprintf(stderr, "[Error] Failed to open input file (errno: %d).\n", errno);
 			return 1;
 		}
 	}
@@ -484,16 +486,17 @@ int main(int argc, char* argv[]) {
 			#endif
 		} else {
 			struct stat fileStat;
-			if(fstat(input_fd, &fileStat) < 0) {
-				fprintf(stderr, "[Error] Failed to get permissions on input file.\n");
+			if(fstat(input_fd, &fileStat) == -1) {
+				fprintf(stderr, "[Error] Failed to get permissions on input file (errno: %d).\n",
+									errno);
 				return 1;
 			}
 			output_fd = open(output, O_CREAT | O_TRUNC | O_WRONLY, fileStat.st_mode | S_IWUSR);
 			if(output_fd == -1) {
 				if(errno == EACCES)
-					fprintf(stderr, "[Error] Failed to open output file - permissions.\n");
+					fprintf(stderr, "[Error] Failed to open output file - permission denied.\n");
 				else
-					fprintf(stderr, "[Error] Failed to open output file.\n"); // TODO More error info
+					fprintf(stderr, "[Error] Failed to open output file (errno: %d).\n", errno);
 				return 1;
 			}
 		}
@@ -506,16 +509,18 @@ int main(int argc, char* argv[]) {
 
 	// Done with checks, move onto program
 	if(compress_mode) {
-		fprintf(pLocation, "Compressing\n");
+		fprintf(pLocation, "Compressing...\n");
 		if(outputStdout) {
 			fprintf(stderr, "[Error] Can't compress to stdout.\n");
 			return 1;
 		}
 		compress(input_fd, output_fd, pi);
 	} else if(extract_mode) {
-		fprintf(pLocation, "Extracting\n");
+		fprintf(pLocation, "Extracting...\n");
 		extract(input_fd, output_fd, pi, outputStdout);
 	}
+
+	fprintf(pLocation, "Done\n");
 
 	close(input_fd);
 	close(output_fd);
@@ -523,7 +528,5 @@ int main(int argc, char* argv[]) {
 	return 0;
 }
 
-// TODO: More info on errors
-// TODO: Improve error messages?
-// TODO: Progress bar?
-// TODO: Verify length match
+// TODO: Improve info messages?
+// TODO: Progress?
