@@ -1,5 +1,11 @@
 # Strawberry Cheesecake
 
+**Update, January 2021:** I've created data compression algorithm which which offers an improvement
+over traditional Huffman coding in most cases and achieves the same performance as is achieved in
+this project. Check it out here: [https://github.com/jeremy-rifkin/Markov-Huffman-Coding][MH]
+
+---
+
 Strawberry cheesecake is a data compression utility specifically designed for compressing numeric
 data.
 
@@ -40,3 +46,5 @@ gcc main.c -O3 -funroll-loops -o strawberrycheesecake
 # Extract:
 ./strawberrycheesecake -x output.sc data.txt
 ```
+
+[MH]: https://github.com/jeremy-rifkin/Markov-Huffman-Coding
